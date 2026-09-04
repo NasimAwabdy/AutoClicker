@@ -21,14 +21,18 @@ A native Swift/SwiftUI clone of [OP Auto Clicker](https://www.opautoclicker.com/
 
 - **Vary click interval** — adds a random ± offset (in ms) to every click delay:
   - *Uniform* — evenly distributed within the range
-  - *Human-like (gaussian)* — bell-curve distribution centered on your base interval,
-    mimicking natural human timing
+  - *Human-like* — right-skewed (log-normal) distribution: clicks cluster near
+    the base interval with an occasional slow tail but no impossibly fast
+    outliers, and the base rhythm itself drifts slowly over the session
+    (mean-reverting random walk), so delays are autocorrelated like real
+    human clicking rather than statistically independent
 - **Jitter click position** — randomly offsets each click by ± N pixels so clicks
   don't land on the exact same coordinate every time
-- **Randomized hold time** — holds the button for a random, bell-curve-distributed
-  duration between mousedown and mouseup (real clicks last ~50–150 ms; a ~0 ms
-  press duration on every click is an easy bot giveaway). Hold time is absorbed
-  into the click interval, so the configured click rate is unaffected
+- **Randomized hold time** — holds the button for a random, right-skewed
+  duration between mousedown and mouseup (real clicks last ~50–150 ms and
+  cluster toward the short end; a ~0 ms press duration on every click is an
+  easy bot giveaway). Hold time is absorbed into the click interval, so the
+  configured click rate is unaffected
 - **Random pauses** — occasionally stops clicking for a random duration, at
   randomized intervals (measured in clicks, seconds, or minutes), like a human
   taking a break

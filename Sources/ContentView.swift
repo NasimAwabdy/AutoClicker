@@ -169,7 +169,7 @@ struct ContentView: View {
                     .labelsHidden()
                     .frame(width: 130)
                     .disabled(!randomizeEnabled)
-                    .help("Uniform: offsets are evenly spread across the range.\nHuman-like: bell-curve (gaussian) distribution centered on your base interval — most clicks land near the base time with occasional outliers, mimicking natural human rhythm.")
+                    .help("Uniform: offsets are evenly spread across the range.\nHuman-like: right-skewed (log-normal) timing — most clicks cluster near your base interval with occasional slower outliers but never impossibly fast ones, and the underlying rhythm drifts slowly across the session (bursts, fatigue) so consecutive delays are correlated the way real clicking is.")
                     Spacer()
                 }
                 HStack(spacing: 8) {

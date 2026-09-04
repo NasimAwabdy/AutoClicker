@@ -29,23 +29,31 @@ final class ClickEngine: ObservableObject {
         var useFixedLocation: Bool
         var fixedPoint: CGPoint          // CG (top-left origin) coordinates
 
+        /// Standard-normal sample (Box-Muller).
+        static func gaussianZ() -> Double {
+            let u1 = Double.random(in: 0.000_001..<1)
+            let u2 = Double.random(in: 0..<1)
+            return (-2 * log(u1)).squareRoot() * cos(2 * .pi * u2)
+        }
+
         /// Next delay in ms, optionally randomized to defeat bot detection.
-        func nextDelayMs() -> Int {
+        /// `drift` is a slow session-level multiplier (see ClickEngine.drift).
+        func nextDelayMs(drift: Double = 1) -> Int {
             let base = Double(max(1, baseIntervalMs))
             guard randomize, randomAmountMs > 0 else { return Int(base) }
             let amount = Double(randomAmountMs)
-            let offset: Double
             switch randomMode {
             case .uniform:
-                offset = Double.random(in: -amount...amount)
+                return Int(max(1, base + Double.random(in: -amount...amount)))
             case .gaussian:
-                // Box-Muller, sigma = amount/2, clamped to ±amount
-                let u1 = Double.random(in: 0.000_001..<1)
-                let u2 = Double.random(in: 0..<1)
-                let z = (-2 * log(u1)).squareRoot() * cos(2 * .pi * u2)
-                offset = min(max(z * amount / 2, -amount), amount)
+                // Log-normal around the drifted base: right-skewed like real
+                // inter-click times — clustered near the median with an
+                // occasional slow tail, but no mirror-image "too fast"
+                // outliers below the physical floor.
+                let sigma = min(0.8, amount / base)
+                let v = base * drift * exp(Self.gaussianZ() * sigma)
+                return Int(max(base * drift * 0.55, min(v, base * drift + 4 * amount)))
             }
-            return Int(max(1, base + offset))
         }
 
         /// Random countdown until the next pause: a click count for .clicks,
@@ -68,17 +76,16 @@ final class ClickEngine: ObservableObject {
             return Int.random(in: lo...hi)
         }
 
-        /// Random press duration (mousedown → mouseup) in ms: bell curve within
-        /// the range, since human clicks cluster around ~85 ms rather than
-        /// spreading evenly. 0 when disabled (down/up posted back-to-back).
+        /// Random press duration (mousedown → mouseup) in ms, log-normal
+        /// within the range: median in the lower third with a tail toward the
+        /// max — real press durations are right-skewed, not bell-shaped.
+        /// 0 when disabled (down/up posted back-to-back).
         func nextHoldMs() -> Int {
             guard humanHold else { return 0 }
             let lo = Double(max(1, min(holdMinMs, holdMaxMs)))
             let hi = Double(max(1, max(holdMinMs, holdMaxMs)))
-            let u1 = Double.random(in: 0.000_001..<1)
-            let u2 = Double.random(in: 0..<1)
-            let z = (-2 * log(u1)).squareRoot() * cos(2 * .pi * u2)
-            let v = (lo + hi) / 2 + z * (hi - lo) / 4
+            let median = lo + 0.3 * (hi - lo)
+            let v = median * exp(Self.gaussianZ() * 0.22)
             return Int(min(max(v, lo), hi))
         }
     }
@@ -90,6 +97,18 @@ final class ClickEngine: ObservableObject {
     private var generation = 0
     private let queue = DispatchQueue(label: "autoclicker.engine", qos: .userInteractive)
 
+    /// Session-level rhythm multiplier, evolved as a mean-reverting random
+    /// walk (only in Human-like mode). Independent per-click randomness fails
+    /// autocorrelation tests — real click rhythm drifts over minutes
+    /// (warm-up, bursts, fatigue), with fast clicks tending to follow fast
+    /// ones. Touched only on the engine queue.
+    private var drift = 1.0
+
+    private func advanceDrift() {
+        drift += Double.random(in: -0.05...0.05) - (drift - 1) * 0.015
+        drift = min(max(drift, 0.7), 1.4)
+    }
+
     func start(config: Config) {
         guard !isRunning else { return }
         isRunning = true
@@ -98,7 +117,10 @@ final class ClickEngine: ObservableObject {
         generation += 1
         let gen = generation
         let untilPause = config.pauses ? config.nextPauseTarget() : Int.max
-        queue.async { self.step(gen, config, done: 0, untilPause: untilPause) }
+        queue.async {
+            self.drift = Double.random(in: 0.9...1.1) // each session starts at its own tempo
+            self.step(gen, config, done: 0, untilPause: untilPause)
+        }
     }
 
     func stop() {
@@ -131,7 +153,8 @@ final class ClickEngine: ObservableObject {
             return
         }
 
-        var delay = max(1, cfg.nextDelayMs() - clickMs)
+        if cfg.randomize && cfg.randomMode == .gaussian { advanceDrift() }
+        var delay = max(1, cfg.nextDelayMs(drift: drift) - clickMs)
         // Count down in clicks, or in elapsed milliseconds, depending on the unit.
         var nextUntilPause = cfg.pauseEveryUnit == .clicks
             ? untilPause - 1
