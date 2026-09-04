@@ -42,7 +42,9 @@ to `/Applications`:
 curl -fsSL https://raw.githubusercontent.com/NasimAwabdy/AutoClicker/main/install.sh | bash
 ```
 
-**To update, run the same command again.**
+**Updates are offered in-app:** on launch, AutoClicker checks GitHub Releases
+and shows a banner with an *Update Now* button when a newer version exists.
+You can also update manually by re-running the install command above.
 
 Releases are ad-hoc signed rather than Apple-notarized, so the script removes
 macOS's quarantine flag after download — feel free to read

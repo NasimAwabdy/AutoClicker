@@ -36,6 +36,7 @@ struct ContentView: View {
 
     @StateObject private var engine = ClickEngine()
     @StateObject private var hotkeys = HotKeyManager.shared
+    @StateObject private var updater = UpdateManager.shared
 
     @State private var pickCountdown = 0
     @State private var axTrusted = AXIsProcessTrusted()
@@ -43,6 +44,7 @@ struct ContentView: View {
 
     var body: some View {
         VStack(spacing: 14) {
+            if updater.updateAvailable { updateBanner }
             if !axTrusted { permissionBanner }
             intervalBox
             antiDetectionBox
@@ -60,10 +62,47 @@ struct ContentView: View {
         .onAppear {
             hotkeys.activate()
             hotkeys.onToggle = { engine.toggle(config: currentConfig()) }
+            updater.checkForUpdates()
         }
         .onReceive(axTimer) { _ in
             axTrusted = AXIsProcessTrusted()
         }
+    }
+
+    private var updateBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "arrow.down.circle.fill")
+                .font(.title3)
+                .foregroundStyle(.blue)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Version \(updater.latestVersion ?? "?") is available — you have \(updater.currentVersion)")
+                    .font(.callout.bold())
+                Text(updater.updateError
+                     ?? "Updating downloads the new version, relaunches, and asks you to re-grant Accessibility permission.")
+                    .font(.caption)
+                    .foregroundColor(updater.updateError == nil ? .secondary : .red)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer()
+            Button(updater.isUpdating ? "Updating…" : "Update Now") {
+                updater.installUpdate()
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(updater.isUpdating)
+            .help("Downloads the latest release from GitHub, replaces /Applications/AutoClicker.app, and relaunches. Your settings are kept — you'll only need to re-grant Accessibility permission (the code signature changes with each release).")
+            Button {
+                updater.dismissed = true
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .disabled(updater.isUpdating)
+            .help("Hide until the next launch.")
+        }
+        .padding(12)
+        .background(.blue.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(.blue.opacity(0.35)))
     }
 
     private var permissionBanner: some View {
