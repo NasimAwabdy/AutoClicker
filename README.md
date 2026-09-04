@@ -1,0 +1,63 @@
+# AutoClicker for macOS
+
+A native Swift/SwiftUI clone of [OP Auto Clicker](https://www.opautoclicker.com/) with added
+**anti-bot-detection randomization**.
+
+## Features (parity with OP Auto Clicker)
+
+- **Click interval** — hours / mins / secs / milliseconds
+- **Mouse button** — left, right, or middle click
+- **Click type** — single, double, or triple clicking
+- **Click repeat** — repeat N times, or repeat until stopped (infinite)
+- **Cursor position** — click at your dynamic cursor location, or a prespecified fixed
+  location (use *Pick location*: a 3-second countdown, then it captures wherever your mouse is)
+- **Changeable global hotkey** — default **F6** to start/stop; works in the background
+  even when the app isn't focused. Click *Hotkey setting* and press any key
+  (with optional ⌘⌥⌃⇧ modifiers); Esc cancels.
+- **Settings saved** — every option (including the last fixed location and hotkey)
+  persists across sessions
+
+## Anti-detection additions
+
+- **Vary click interval** — adds a random ± offset (in ms) to every click delay:
+  - *Uniform* — evenly distributed within the range
+  - *Human-like (gaussian)* — bell-curve distribution centered on your base interval,
+    mimicking natural human timing
+- **Jitter click position** — randomly offsets each click by ± N pixels so clicks
+  don't land on the exact same coordinate every time
+- **Randomized hold time** — holds the button for a random, bell-curve-distributed
+  duration between mousedown and mouseup (real clicks last ~50–150 ms; a ~0 ms
+  press duration on every click is an easy bot giveaway). Hold time is absorbed
+  into the click interval, so the configured click rate is unaffected
+- **Random pauses** — occasionally stops clicking for a random duration, at
+  randomized intervals (measured in clicks, seconds, or minutes), like a human
+  taking a break
+
+## Build & run
+
+Requires macOS 13+ and Xcode Command Line Tools (`xcode-select --install`).
+
+```bash
+./build.sh
+open build/AutoClicker.app
+```
+
+## First launch
+
+macOS requires **Accessibility** permission to post synthetic mouse clicks.
+On first launch you'll be prompted — enable AutoClicker under
+**System Settings → Privacy & Security → Accessibility**, then relaunch the app.
+(The global hotkey works without any permission.)
+
+## Project layout
+
+```
+AutoClicker/
+├── build.sh                     # builds build/AutoClicker.app
+├── Info.plist
+└── Sources/
+    ├── AutoClickerApp.swift     # app entry, accessibility prompt
+    ├── ContentView.swift        # UI + persisted settings
+    ├── ClickEngine.swift        # click loop, CGEvent posting, randomization
+    └── HotKeyManager.swift      # global hotkey (Carbon), hotkey recording
+```
