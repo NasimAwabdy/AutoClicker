@@ -33,13 +33,38 @@ A native Swift/SwiftUI clone of [OP Auto Clicker](https://www.opautoclicker.com/
   randomized intervals (measured in clicks, seconds, or minutes), like a human
   taking a break
 
-## Build & run
+## Install
+
+One command installs the latest [release](https://github.com/NasimAwabdy/AutoClicker/releases)
+to `/Applications`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NasimAwabdy/AutoClicker/main/install.sh | bash
+```
+
+**To update, run the same command again.**
+
+Releases are ad-hoc signed rather than Apple-notarized, so the script removes
+macOS's quarantine flag after download — feel free to read
+[`install.sh`](install.sh) before running it. After every install or update,
+macOS asks you to re-grant Accessibility permission (the code signature changes
+with each build).
+
+## Build from source
 
 Requires macOS 13+ and Xcode Command Line Tools (`xcode-select --install`).
 
 ```bash
-./build.sh
-open build/AutoClicker.app
+./build.sh    # builds and installs /Applications/AutoClicker.app
+```
+
+## Releasing (maintainers)
+
+Push a version tag and GitHub Actions builds the app, stamps the version into
+Info.plist, and publishes a GitHub Release with `AutoClicker.zip` attached:
+
+```bash
+git tag v1.2.3 && git push origin v1.2.3
 ```
 
 ## First launch

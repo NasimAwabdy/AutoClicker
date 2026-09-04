@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stamp version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          plutil -replace CFBundleShortVersionString -string "$VERSION" Info.plist
+          plutil -replace CFBundleVersion -string "$VERSION" Info.plist
+
+      - name: Build
+        run: ./build.sh --no-install
+
+      - name: Zip app
+        run: ditto -c -k --keepParent build/AutoClicker.app AutoClicker.zip
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" AutoClicker.zip --title "$GITHUB_REF_NAME" --generate-notes

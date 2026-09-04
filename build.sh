@@ -19,6 +19,12 @@ swiftc -O -parse-as-library \
 # Ad-hoc sign so macOS remembers the Accessibility permission grant.
 codesign --force --sign - "$APP"
 
+# --no-install: build only (used by CI); skip the /Applications install.
+if [[ "${1:-}" == "--no-install" ]]; then
+    echo "✅ Built $APP"
+    exit 0
+fi
+
 # Install to /Applications (stable path). Ad-hoc signatures change every build,
 # which leaves a stale TCC entry that silently denies clicks ("Failed to match
 # existing code requirement"), so wipe the permission for a clean re-grant.
