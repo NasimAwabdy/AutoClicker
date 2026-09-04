@@ -1,7 +1,9 @@
-# AutoClicker for macOS
+# AutoClicker
 
-A native Swift/SwiftUI clone of [OP Auto Clicker](https://www.opautoclicker.com/) with added
-**anti-bot-detection randomization**.
+A native clone of [OP Auto Clicker](https://www.opautoclicker.com/) with added
+**anti-bot-detection randomization**, for **macOS** (Swift/SwiftUI) and
+**Windows** (C#/WinForms). Both versions share the same features and the same
+humanized-timing math.
 
 ## Features (parity with OP Auto Clicker)
 
@@ -37,7 +39,21 @@ A native Swift/SwiftUI clone of [OP Auto Clicker](https://www.opautoclicker.com/
   randomized intervals (measured in clicks, seconds, or minutes), like a human
   taking a break
 
-## Install
+## Install (Windows)
+
+Download `AutoClicker-windows.zip` from the latest
+[release](https://github.com/NasimAwabdy/AutoClicker/releases), unzip, and run
+`AutoClicker.exe` — it's a single self-contained file, no installer or .NET
+runtime needed. No special permissions are required on Windows.
+
+Windows SmartScreen may warn on first launch because the exe isn't
+code-signed — click *More info → Run anyway*.
+
+Like on macOS, the app checks GitHub Releases on launch and shows an
+*Update Now* banner when a newer version exists. Settings are stored in
+`%APPDATA%\AutoClicker\settings.json` and survive updates.
+
+## Install (macOS)
 
 One command installs the latest [release](https://github.com/NasimAwabdy/AutoClicker/releases)
 to `/Applications`:
@@ -58,22 +74,31 @@ with each build).
 
 ## Build from source
 
-Requires macOS 13+ and Xcode Command Line Tools (`xcode-select --install`).
+macOS — requires macOS 13+ and Xcode Command Line Tools (`xcode-select --install`):
 
 ```bash
 ./build.sh    # builds and installs /Applications/AutoClicker.app
 ```
 
+Windows — requires the [.NET 8 SDK](https://dotnet.microsoft.com/download)
+(the project also compiles on macOS/Linux for type-checking, it just won't run there):
+
+```bash
+dotnet publish windows/AutoClicker.csproj -c Release -r win-x64 \
+  --self-contained -p:PublishSingleFile=true -o windows/publish
+```
+
 ## Releasing (maintainers)
 
-Push a version tag and GitHub Actions builds the app, stamps the version into
-Info.plist, and publishes a GitHub Release with `AutoClicker.zip` attached:
+Push a version tag and GitHub Actions builds both apps, stamps the version,
+and publishes a GitHub Release with `AutoClicker.zip` (macOS) and
+`AutoClicker-windows.zip` (Windows) attached:
 
 ```bash
 git tag v1.2.3 && git push origin v1.2.3
 ```
 
-## First launch
+## First launch (macOS)
 
 macOS requires **Accessibility** permission to post synthetic mouse clicks.
 On first launch you'll be prompted — enable AutoClicker under
@@ -84,11 +109,20 @@ On first launch you'll be prompted — enable AutoClicker under
 
 ```
 AutoClicker/
-├── build.sh                     # builds build/AutoClicker.app
+├── build.sh                     # macOS: builds build/AutoClicker.app
 ├── Info.plist
-└── Sources/
-    ├── AutoClickerApp.swift     # app entry, accessibility prompt
-    ├── ContentView.swift        # UI + persisted settings
-    ├── ClickEngine.swift        # click loop, CGEvent posting, randomization
-    └── HotKeyManager.swift      # global hotkey (Carbon), hotkey recording
+├── Sources/                     # macOS (Swift/SwiftUI)
+│   ├── AutoClickerApp.swift     # app entry, accessibility prompt
+│   ├── ContentView.swift        # UI + persisted settings
+│   ├── ClickEngine.swift        # click loop, CGEvent posting, randomization
+│   ├── HotKeyManager.swift      # global hotkey (Carbon), hotkey recording
+│   └── UpdateManager.swift      # GitHub Releases update check + one-click update
+└── windows/                     # Windows (C#/WinForms, .NET 8)
+    ├── AutoClicker.csproj
+    ├── Program.cs               # app entry
+    ├── MainForm.cs              # UI, WM_HOTKEY handling
+    ├── ClickEngine.cs           # click loop, SendInput, same randomization math
+    ├── HotKeyManager.cs         # global hotkey (RegisterHotKey), hotkey recording
+    ├── Settings.cs              # settings persisted to %APPDATA%
+    └── UpdateManager.cs         # GitHub Releases update check + one-click update
 ```

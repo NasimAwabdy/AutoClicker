@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  release-macos:
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
@@ -34,3 +34,40 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" AutoClicker.zip --title "$GITHUB_REF_NAME" --generate-notes \
             || gh release upload "$GITHUB_REF_NAME" AutoClicker.zip --clobber
+
+  release-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Build
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          dotnet publish windows/AutoClicker.csproj -c Release -r win-x64 \
+            --self-contained -p:PublishSingleFile=true -p:Version="$VERSION" \
+            -o publish
+
+      - name: Zip exe
+        shell: bash
+        run: |
+          cd publish
+          7z a ../AutoClicker-windows.zip AutoClicker.exe
+
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        # The macOS job usually creates the release first; retry briefly in
+        # case this job wins the race, then fall back to creating it.
+        run: |
+          for i in 1 2 3 4 5 6; do
+            gh release upload "$GITHUB_REF_NAME" AutoClicker-windows.zip --clobber && exit 0
+            sleep 20
+          done
+          gh release create "$GITHUB_REF_NAME" AutoClicker-windows.zip --title "$GITHUB_REF_NAME" --generate-notes \
+            || gh release upload "$GITHUB_REF_NAME" AutoClicker-windows.zip --clobber
