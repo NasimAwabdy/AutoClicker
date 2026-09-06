@@ -34,9 +34,17 @@ struct ContentView: View {
     @AppStorage("fixedX") private var fixedX = 0.0
     @AppStorage("fixedY") private var fixedY = 0.0
 
+    @AppStorage("routineOffsetEnabled") private var routineOffsetEnabled = true
+    @AppStorage("routineOffsetPx") private var routineOffsetPx = 6
+    @AppStorage("routineRepeatMode") private var routineRepeatMode = "once"
+    @AppStorage("routineRepeatCount") private var routineRepeatCount = 5
+    @AppStorage("selectedRoutineID") private var selectedRoutineID = ""
+
     @StateObject private var engine = ClickEngine()
     @StateObject private var hotkeys = HotKeyManager.shared
     @StateObject private var updater = UpdateManager.shared
+    @StateObject private var routineEngine = RoutineEngine()
+    @StateObject private var routineStore = RoutineStore.shared
 
     @State private var pickCountdown = 0
     @State private var axTrusted = AXIsProcessTrusted()
@@ -53,6 +61,7 @@ struct ContentView: View {
                 clickRepeatBox
             }
             cursorPositionBox
+            routinesBox
             controls
             statusBar
         }
@@ -296,6 +305,118 @@ struct ContentView: View {
                 Spacer()
             }
         }
+    }
+
+    private var routinesBox: some View {
+        section("Record & replay routines", icon: "record.circle") {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Button {
+                        if routineEngine.isRecording {
+                            if let saved = routineEngine.stopRecording(saveAs: routineStore.nextName()) {
+                                selectedRoutineID = saved.id.uuidString
+                            }
+                        } else {
+                            routineEngine.startRecording()
+                        }
+                    } label: {
+                        Label(routineEngine.isRecording ? "Stop & save" : "Record routine",
+                              systemImage: routineEngine.isRecording ? "stop.circle.fill" : "record.circle")
+                    }
+                    .tint(.red)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(routineEngine.isPlaying)
+                    .help("Record a routine: press, then click or type anywhere on screen (in any app) — every click becomes a target and every key press becomes a step. Modifier keys (⇧⌘⌥⌃) held while clicking are captured too. Events inside this window are ignored. Press again to stop and save.")
+
+                    if routineEngine.isRecording {
+                        Text("Recording — \(routineEngine.recordedCount) step\(routineEngine.recordedCount == 1 ? "" : "s") captured")
+                            .font(.callout.monospacedDigit())
+                            .foregroundStyle(.red)
+                    }
+
+                    Spacer()
+
+                    Picker("", selection: $selectedRoutineID) {
+                        Text("No routine").tag("")
+                        ForEach(routineStore.routines) { r in
+                            Text("\(r.name) (\(r.clickCount) clicks, \(r.steps.count - r.clickCount) keys)").tag(r.id.uuidString)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 190)
+                    .disabled(routineEngine.isRecording || routineEngine.isPlaying)
+                    .help("Choose a saved routine to replay or delete.")
+
+                    Button {
+                        routineStore.routines.removeAll { $0.id.uuidString == selectedRoutineID }
+                        selectedRoutineID = ""
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .disabled(selectedRoutine == nil || routineEngine.isPlaying || routineEngine.isRecording)
+                    .help("Delete the selected routine.")
+                }
+
+                HStack(spacing: 8) {
+                    Button {
+                        if routineEngine.isPlaying {
+                            routineEngine.stopPlaying()
+                        } else if let r = selectedRoutine {
+                            routineEngine.play(r, config: routineConfig())
+                        }
+                    } label: {
+                        Label(routineEngine.isPlaying ? "Stop" : "Replay",
+                              systemImage: routineEngine.isPlaying ? "stop.fill" : "play.fill")
+                    }
+                    .tint(routineEngine.isPlaying ? .red : .green)
+                    .buttonStyle(.borderedProminent)
+                    .disabled((selectedRoutine == nil && !routineEngine.isPlaying) || routineEngine.isRecording)
+                    .help("Replay the selected routine. The mouse physically travels between targets along curved, speed-varying, slightly trembling paths with occasional overshoots; key presses (including modifiers like shift-click) are replayed too — and every replay is different.")
+
+                    Picker("", selection: $routineRepeatMode) {
+                        Text("once").tag("once")
+                        Text("times:").tag("count")
+                        Text("until stopped").tag("forever")
+                    }
+                    .labelsHidden()
+                    .frame(width: 120)
+                    .disabled(routineEngine.isPlaying)
+                    .help("How many times to run through the routine.")
+                    numberField($routineRepeatCount, min: 1)
+                        .disabled(routineRepeatMode != "count" || routineEngine.isPlaying)
+                        .help("Number of times to replay the routine.")
+
+                    Divider().frame(height: 18)
+
+                    Toggle("Offset targets by ±", isOn: $routineOffsetEnabled)
+                        .help("Each replay clicks a random point within this radius of the recorded target, so the exact same pixel is never clicked twice.")
+                    numberField($routineOffsetPx, min: 1)
+                        .disabled(!routineOffsetEnabled)
+                        .help("Maximum offset radius in pixels around each recorded target.")
+                    Text("px").foregroundStyle(.secondary)
+
+                    Spacer()
+                }
+
+                if routineEngine.isPlaying, let r = selectedRoutine {
+                    Text("Replaying \(r.name) — loop \(routineEngine.currentLoop), step \(routineEngine.currentTarget)/\(r.steps.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private var selectedRoutine: Routine? {
+        routineStore.routines.first { $0.id.uuidString == selectedRoutineID }
+    }
+
+    private func routineConfig() -> RoutineEngine.ReplayConfig {
+        RoutineEngine.ReplayConfig(
+            offsetEnabled: routineOffsetEnabled,
+            offsetPx: routineOffsetPx,
+            loops: routineRepeatMode == "forever" ? 0
+                 : routineRepeatMode == "count" ? max(1, routineRepeatCount) : 1)
     }
 
     private var controls: some View {
