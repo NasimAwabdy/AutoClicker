@@ -62,7 +62,7 @@ struct ContentView: View {
             }
         }
         .padding(18)
-        .frame(width: 560)
+        .frame(width: 620)
         .background(.background)
         .onAppear {
             hotkeys.activate()

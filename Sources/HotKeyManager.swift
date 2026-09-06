@@ -178,6 +178,10 @@ final class HotKeyManager: ObservableObject {
         kVK_PageUp: "Page Up", kVK_PageDown: "Page Down",
         kVK_LeftArrow: "←", kVK_RightArrow: "→", kVK_UpArrow: "↑", kVK_DownArrow: "↓",
         kVK_ANSI_Minus: "-", kVK_ANSI_Equal: "=", kVK_ANSI_Grave: "`",
+        kVK_ANSI_Comma: ",", kVK_ANSI_Period: ".", kVK_ANSI_Slash: "/",
+        kVK_ANSI_Semicolon: ";", kVK_ANSI_Quote: "'", kVK_ANSI_Backslash: "\\",
+        kVK_ANSI_LeftBracket: "[", kVK_ANSI_RightBracket: "]",
+        kVK_Escape: "Esc", kVK_ForwardDelete: "⌦", kVK_Help: "Help",
     ]
 
     private static func keyName(for code: Int) -> String {
