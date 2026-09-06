@@ -1,46 +1,66 @@
 import Cocoa
 import Carbon.HIToolbox
 
-/// Global (background) start/stop hotkey via Carbon RegisterEventHotKey.
+/// Global (background) hotkeys via Carbon RegisterEventHotKey.
 /// Works even when the app is not focused, no accessibility needed for the hotkey itself.
 final class HotKeyManager: ObservableObject {
 
     static let shared = HotKeyManager()
 
-    @Published var isRecording = false
-    @Published private(set) var displayName = ""
+    /// Each hotkey-able action. The raw value doubles as the Carbon hotkey ID.
+    enum Action: UInt32, CaseIterable {
+        case toggleClicker = 1
+        case playRoutine = 2
 
-    var onToggle: (() -> Void)?
+        // toggleClicker keeps the pre-1.6 keys so existing setups migrate untouched.
+        var keyCodeKey: String {
+            self == .toggleClicker ? "hotkeyKeyCode" : "routineHotkeyKeyCode"
+        }
+        var modifiersKey: String {
+            self == .toggleClicker ? "hotkeyModifiers" : "routineHotkeyModifiers"
+        }
+        var defaultKeyCode: UInt32 {
+            self == .toggleClicker ? UInt32(kVK_F6) : UInt32(kVK_F7)
+        }
+    }
 
-    private var hotKeyRef: EventHotKeyRef?
+    /// Which action is currently waiting for a key press (nil = none).
+    @Published private(set) var recordingAction: Action?
+    @Published private(set) var names: [Action: String] = [:]
+
+    var onToggleClicker: (() -> Void)?
+    var onPlayRoutine: (() -> Void)?
+
+    private var hotKeyRefs: [Action: EventHotKeyRef] = [:]
     private var handlerInstalled = false
     private var localMonitor: Any?
 
-    private let keyCodeKey = "hotkeyKeyCode"
-    private let modifiersKey = "hotkeyModifiers"
-
-    private var keyCode: UInt32 {
-        get {
-            let v = UserDefaults.standard.object(forKey: keyCodeKey) as? Int
-            return UInt32(v ?? kVK_F6) // default F6, like OP Auto Clicker
-        }
-        set { UserDefaults.standard.set(Int(newValue), forKey: keyCodeKey) }
+    private func keyCode(for action: Action) -> UInt32 {
+        let v = UserDefaults.standard.object(forKey: action.keyCodeKey) as? Int
+        return UInt32(v ?? Int(action.defaultKeyCode))
     }
 
-    private var carbonModifiers: UInt32 {
-        get { UInt32(UserDefaults.standard.integer(forKey: modifiersKey)) }
-        set { UserDefaults.standard.set(Int(newValue), forKey: modifiersKey) }
+    private func carbonModifiers(for action: Action) -> UInt32 {
+        UInt32(UserDefaults.standard.integer(forKey: action.modifiersKey))
     }
 
     private init() {
-        updateDisplayName()
+        Action.allCases.forEach(updateDisplayName)
+    }
+
+    func displayName(_ action: Action) -> String {
+        names[action] ?? ""
+    }
+
+    func isRecording(_ action: Action) -> Bool {
+        recordingAction == action
     }
 
     // MARK: - Registration
 
     func activate() {
         installHandlerIfNeeded()
-        register()
+        Action.allCases.forEach(register)
     }
 
     private func installHandlerIfNeeded() {
@@ -48,44 +68,58 @@ final class HotKeyManager: ObservableObject {
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard),
                                  eventKind: UInt32(kEventHotKeyPressed))
         let selfPtr = Unmanaged.passUnretained(self).toOpaque()
-        InstallEventHandler(GetApplicationEventTarget(), { _, _, userData -> OSStatus in
-            guard let userData else { return noErr }
+        InstallEventHandler(GetApplicationEventTarget(), { _, event, userData -> OSStatus in
+            guard let userData, let event else { return noErr }
+            var hotKeyID = EventHotKeyID()
+            GetEventParameter(event, EventParamName(kEventParamDirectObject),
+                              EventParamType(typeEventHotKeyID), nil,
+                              MemoryLayout<EventHotKeyID>.size, nil, &hotKeyID)
             let manager = Unmanaged<HotKeyManager>.fromOpaque(userData).takeUnretainedValue()
-            DispatchQueue.main.async { manager.onToggle?() }
+            let action = Action(rawValue: hotKeyID.id)
+            DispatchQueue.main.async { manager.handlePress(action) }
             return noErr
         }, 1, &spec, selfPtr, nil)
         handlerInstalled = true
     }
 
-    private func register() {
-        unregister()
-        let hotKeyID = EventHotKeyID(signature: OSType(0x41434C4B) /* 'ACLK' */, id: 1)
-        RegisterEventHotKey(keyCode, carbonModifiers, hotKeyID,
-                            GetApplicationEventTarget(), 0, &hotKeyRef)
+    private func handlePress(_ action: Action?) {
+        switch action {
+        case .toggleClicker: onToggleClicker?()
+        case .playRoutine:   onPlayRoutine?()
+        case nil:            break
+        }
     }
 
-    private func unregister() {
-        if let ref = hotKeyRef {
+    private func register(_ action: Action) {
+        unregister(action)
+        let hotKeyID = EventHotKeyID(signature: OSType(0x41434C4B) /* 'ACLK' */,
+                                     id: action.rawValue)
+        var ref: EventHotKeyRef?
+        RegisterEventHotKey(keyCode(for: action), carbonModifiers(for: action), hotKeyID,
+                            GetApplicationEventTarget(), 0, &ref)
+        hotKeyRefs[action] = ref
+    }
+
+    private func unregister(_ action: Action) {
+        if let ref = hotKeyRefs.removeValue(forKey: action) {
             UnregisterEventHotKey(ref)
-            hotKeyRef = nil
         }
     }
 
     // MARK: - Recording a new hotkey
 
-    func beginRecording() {
-        guard !isRecording else { return }
-        isRecording = true
-        unregister() // so the current hotkey key can be re-chosen
+    func beginRecording(for action: Action) {
+        guard recordingAction == nil else { return }
+        recordingAction = action
+        unregister(action) // so the current hotkey key can be re-chosen
         localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self else { return event }
-            if event.keyCode == UInt16(kVK_Escape) { // Esc cancels
-                self.finishRecording()
-                return nil
+            guard let self, let action = self.recordingAction else { return event }
+            if event.keyCode != UInt16(kVK_Escape) { // Esc cancels
+                UserDefaults.standard.set(Int(event.keyCode), forKey: action.keyCodeKey)
+                UserDefaults.standard.set(Int(Self.carbonModifiers(from: event.modifierFlags)),
+                                          forKey: action.modifiersKey)
+                self.updateDisplayName(action)
             }
-            self.keyCode = UInt32(event.keyCode)
-            self.carbonModifiers = Self.carbonModifiers(from: event.modifierFlags)
-            self.updateDisplayName()
             self.finishRecording()
             return nil
         }
@@ -96,8 +130,10 @@ final class HotKeyManager: ObservableObject {
             NSEvent.removeMonitor(monitor)
             localMonitor = nil
         }
-        isRecording = false
-        register()
+        if let action = recordingAction {
+            register(action)
+        }
+        recordingAction = nil
     }
 
     private static func carbonModifiers(from flags: NSEvent.ModifierFlags) -> UInt32 {
@@ -111,15 +147,15 @@ final class HotKeyManager: ObservableObject {
 
     // MARK: - Display
 
-    private func updateDisplayName() {
+    private func updateDisplayName(_ action: Action) {
         var name = ""
-        let mods = carbonModifiers
+        let mods = carbonModifiers(for: action)
         if mods & UInt32(controlKey) != 0 { name += "⌃" }
         if mods & UInt32(optionKey) != 0  { name += "⌥" }
         if mods & UInt32(shiftKey) != 0   { name += "⇧" }
         if mods & UInt32(cmdKey) != 0     { name += "⌘" }
-        name += Self.keyName(for: Int(keyCode))
-        displayName = name
+        name += Self.keyName(for: Int(keyCode(for: action)))
+        names[action] = name
     }
 
     private static let keyNames: [Int: String] = [

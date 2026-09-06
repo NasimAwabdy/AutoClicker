@@ -54,6 +54,29 @@ struct ContentView: View {
         VStack(spacing: 14) {
             if updater.updateAvailable { updateBanner }
             if !axTrusted { permissionBanner }
+            TabView {
+                clickerTab
+                    .tabItem { Label("Auto Clicker", systemImage: "cursorarrow.click") }
+                recordingsTab
+                    .tabItem { Label("Recordings", systemImage: "record.circle") }
+            }
+        }
+        .padding(18)
+        .frame(width: 560)
+        .background(.background)
+        .onAppear {
+            hotkeys.activate()
+            hotkeys.onToggleClicker = { engine.toggle(config: currentConfig()) }
+            hotkeys.onPlayRoutine = { toggleRoutinePlayback() }
+            updater.checkForUpdates()
+        }
+        .onReceive(axTimer) { _ in
+            axTrusted = AXIsProcessTrusted()
+        }
+    }
+
+    private var clickerTab: some View {
+        VStack(spacing: 14) {
             intervalBox
             antiDetectionBox
             HStack(alignment: .top, spacing: 14) {
@@ -61,20 +84,27 @@ struct ContentView: View {
                 clickRepeatBox
             }
             cursorPositionBox
-            routinesBox
             controls
             statusBar
         }
-        .padding(18)
-        .frame(width: 560)
-        .background(.background)
-        .onAppear {
-            hotkeys.activate()
-            hotkeys.onToggle = { engine.toggle(config: currentConfig()) }
-            updater.checkForUpdates()
+        .padding(12)
+    }
+
+    private var recordingsTab: some View {
+        VStack(spacing: 14) {
+            recordBox
+            replayBox
+            routineStatusBar
         }
-        .onReceive(axTimer) { _ in
-            axTrusted = AXIsProcessTrusted()
+        .padding(12)
+    }
+
+    /// Start/stop routine playback — wired to the global replay hotkey.
+    private func toggleRoutinePlayback() {
+        if routineEngine.isPlaying {
+            routineEngine.stopPlaying()
+        } else if let r = selectedRoutine, !routineEngine.isRecording {
+            routineEngine.play(r, config: routineConfig())
         }
     }
 
@@ -307,35 +337,49 @@ struct ContentView: View {
         }
     }
 
-    private var routinesBox: some View {
-        section("Record & replay routines", icon: "record.circle") {
+    // MARK: - Recordings tab
+
+    private var recordBox: some View {
+        section("Record", icon: "record.circle") {
+            HStack(spacing: 10) {
+                Button {
+                    if routineEngine.isRecording {
+                        if let saved = routineEngine.stopRecording(saveAs: routineStore.nextName()) {
+                            selectedRoutineID = saved.id.uuidString
+                        }
+                    } else {
+                        routineEngine.startRecording()
+                    }
+                } label: {
+                    Label(routineEngine.isRecording ? "Stop & save" : "Record routine",
+                          systemImage: routineEngine.isRecording ? "stop.circle.fill" : "record.circle")
+                        .frame(maxWidth: 160)
+                        .padding(.vertical, 5)
+                }
+                .tint(.red)
+                .buttonStyle(.borderedProminent)
+                .disabled(routineEngine.isPlaying)
+                .help("Record a routine: press, then click or type anywhere on screen (in any app) — every click becomes a target and every key press becomes a step. Modifier keys (⇧⌘⌥⌃) held while clicking are captured too. Events inside this window are ignored. Press again to stop and save.")
+
+                if routineEngine.isRecording {
+                    Text("Recording — \(routineEngine.recordedCount) step\(routineEngine.recordedCount == 1 ? "" : "s") captured")
+                        .font(.callout.monospacedDigit())
+                        .foregroundStyle(.red)
+                } else {
+                    Text("Clicks become targets; key presses and ⇧⌘⌥⌃ modifiers are captured too.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+            }
+        }
+    }
+
+    private var replayBox: some View {
+        section("Replay", icon: "play.circle") {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
-                    Button {
-                        if routineEngine.isRecording {
-                            if let saved = routineEngine.stopRecording(saveAs: routineStore.nextName()) {
-                                selectedRoutineID = saved.id.uuidString
-                            }
-                        } else {
-                            routineEngine.startRecording()
-                        }
-                    } label: {
-                        Label(routineEngine.isRecording ? "Stop & save" : "Record routine",
-                              systemImage: routineEngine.isRecording ? "stop.circle.fill" : "record.circle")
-                    }
-                    .tint(.red)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(routineEngine.isPlaying)
-                    .help("Record a routine: press, then click or type anywhere on screen (in any app) — every click becomes a target and every key press becomes a step. Modifier keys (⇧⌘⌥⌃) held while clicking are captured too. Events inside this window are ignored. Press again to stop and save.")
-
-                    if routineEngine.isRecording {
-                        Text("Recording — \(routineEngine.recordedCount) step\(routineEngine.recordedCount == 1 ? "" : "s") captured")
-                            .font(.callout.monospacedDigit())
-                            .foregroundStyle(.red)
-                    }
-
-                    Spacer()
-
+                    Text("Routine:")
                     Picker("", selection: $selectedRoutineID) {
                         Text("No routine").tag("")
                         ForEach(routineStore.routines) { r in
@@ -343,9 +387,9 @@ struct ContentView: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 190)
+                    .frame(width: 220)
                     .disabled(routineEngine.isRecording || routineEngine.isPlaying)
-                    .help("Choose a saved routine to replay or delete.")
+                    .help("Choose a saved routine to replay or delete. The replay hotkey plays this routine.")
 
                     Button {
                         routineStore.routines.removeAll { $0.id.uuidString == selectedRoutineID }
@@ -355,24 +399,11 @@ struct ContentView: View {
                     }
                     .disabled(selectedRoutine == nil || routineEngine.isPlaying || routineEngine.isRecording)
                     .help("Delete the selected routine.")
+                    Spacer()
                 }
 
                 HStack(spacing: 8) {
-                    Button {
-                        if routineEngine.isPlaying {
-                            routineEngine.stopPlaying()
-                        } else if let r = selectedRoutine {
-                            routineEngine.play(r, config: routineConfig())
-                        }
-                    } label: {
-                        Label(routineEngine.isPlaying ? "Stop" : "Replay",
-                              systemImage: routineEngine.isPlaying ? "stop.fill" : "play.fill")
-                    }
-                    .tint(routineEngine.isPlaying ? .red : .green)
-                    .buttonStyle(.borderedProminent)
-                    .disabled((selectedRoutine == nil && !routineEngine.isPlaying) || routineEngine.isRecording)
-                    .help("Replay the selected routine. The mouse physically travels between targets along curved, speed-varying, slightly trembling paths with occasional overshoots; key presses (including modifiers like shift-click) are replayed too — and every replay is different.")
-
+                    Text("Repeat:").foregroundStyle(.secondary)
                     Picker("", selection: $routineRepeatMode) {
                         Text("once").tag("once")
                         Text("times:").tag("count")
@@ -394,17 +425,77 @@ struct ContentView: View {
                         .disabled(!routineOffsetEnabled)
                         .help("Maximum offset radius in pixels around each recorded target.")
                     Text("px").foregroundStyle(.secondary)
-
                     Spacer()
                 }
 
-                if routineEngine.isPlaying, let r = selectedRoutine {
-                    Text("Replaying \(r.name) — loop \(routineEngine.currentLoop), step \(routineEngine.currentTarget)/\(r.steps.count)")
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.secondary)
+                HStack(spacing: 12) {
+                    Button {
+                        toggleRoutinePlayback()
+                    } label: {
+                        Label(routineEngine.isPlaying
+                                ? "Stop (\(hotkeys.displayName(.playRoutine)))"
+                                : "Replay (\(hotkeys.displayName(.playRoutine)))",
+                              systemImage: routineEngine.isPlaying ? "stop.fill" : "play.fill")
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 5)
+                    }
+                    .tint(routineEngine.isPlaying ? .red : .green)
+                    .buttonStyle(.borderedProminent)
+                    .disabled((selectedRoutine == nil && !routineEngine.isPlaying) || routineEngine.isRecording)
+                    .help("Replay the selected routine. The mouse physically travels between targets along curved, speed-varying, slightly trembling paths with occasional overshoots; key presses (including modifiers like shift-click) are replayed too — and every replay is different. The global hotkey (\(hotkeys.displayName(.playRoutine))) starts/stops it from any app.")
+
+                    Button {
+                        hotkeys.beginRecording(for: .playRoutine)
+                    } label: {
+                        Label(hotkeys.isRecording(.playRoutine) ? "Press a key…" : "Hotkey",
+                              systemImage: "keyboard")
+                            .frame(maxWidth: 130)
+                            .padding(.vertical, 5)
+                    }
+                    .help("Change the global replay hotkey. Click, then press any key (optionally with ⌘ ⌥ ⌃ ⇧ modifiers). Press Esc to cancel. The hotkey starts/stops the selected routine system-wide, even when this app isn't focused.")
                 }
             }
         }
+    }
+
+    private var routineStatusBar: some View {
+        HStack(spacing: 8) {
+            Circle()
+                .fill(routineStatusColor)
+                .frame(width: 9, height: 9)
+                .shadow(color: routineStatusColor.opacity(
+                    routineEngine.isPlaying || routineEngine.isRecording ? 0.6 : 0), radius: 3)
+            Text(routineStatusText)
+                .font(.callout.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Spacer()
+            Label("Hotkey works in the background", systemImage: "globe")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .help("The replay hotkey (\(hotkeys.displayName(.playRoutine))) is registered system-wide — you can start/stop the selected routine from any app.")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var routineStatusColor: Color {
+        if routineEngine.isRecording { return .red }
+        if routineEngine.isPlaying { return .green }
+        return .secondary.opacity(0.4)
+    }
+
+    private var routineStatusText: String {
+        if routineEngine.isRecording {
+            return "Recording — \(routineEngine.recordedCount) steps"
+        }
+        if routineEngine.isPlaying, let r = selectedRoutine {
+            return "Replaying \(r.name) — loop \(routineEngine.currentLoop), step \(routineEngine.currentTarget)/\(r.steps.count)"
+        }
+        if let r = selectedRoutine {
+            return "Idle — \(r.name) ready (\(r.steps.count) steps)"
+        }
+        return routineStore.routines.isEmpty ? "No routines recorded yet" : "Idle — no routine selected"
     }
 
     private var selectedRoutine: Routine? {
@@ -424,7 +515,7 @@ struct ContentView: View {
             Button {
                 engine.start(config: currentConfig())
             } label: {
-                Label("Start (\(hotkeys.displayName))", systemImage: "play.fill")
+                Label("Start (\(hotkeys.displayName(.toggleClicker)))", systemImage: "play.fill")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 5)
             }
@@ -432,24 +523,24 @@ struct ContentView: View {
             .tint(.green)
             .disabled(engine.isRunning)
             .keyboardShortcut(.defaultAction)
-            .help("Start clicking with the current settings. You can also press the global hotkey (\(hotkeys.displayName)) — it works even when this app is in the background.")
+            .help("Start clicking with the current settings. You can also press the global hotkey (\(hotkeys.displayName(.toggleClicker))) — it works even when this app is in the background.")
 
             Button {
                 engine.stop()
             } label: {
-                Label("Stop (\(hotkeys.displayName))", systemImage: "stop.fill")
+                Label("Stop (\(hotkeys.displayName(.toggleClicker)))", systemImage: "stop.fill")
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 5)
             }
             .buttonStyle(.borderedProminent)
             .tint(.red)
             .disabled(!engine.isRunning)
-            .help("Stop clicking. The global hotkey (\(hotkeys.displayName)) also stops it from any app.")
+            .help("Stop clicking. The global hotkey (\(hotkeys.displayName(.toggleClicker))) also stops it from any app.")
 
             Button {
-                hotkeys.beginRecording()
+                hotkeys.beginRecording(for: .toggleClicker)
             } label: {
-                Label(hotkeys.isRecording ? "Press a key…" : "Hotkey",
+                Label(hotkeys.isRecording(.toggleClicker) ? "Press a key…" : "Hotkey",
                       systemImage: "keyboard")
                     .frame(maxWidth: 130)
                     .padding(.vertical, 5)
